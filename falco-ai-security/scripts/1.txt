@@ -1,0 +1,43 @@
+setup_firewall() {
+    log_info "配置防火墙规则..."
+
+    # 安装 ufw（如未安装）
+    if ! command -v ufw &> /dev/null; then
+        apt-get install -y ufw
+    fi
+
+    # 重置防火墙规则并设定默认策略
+    ufw --force reset
+    ufw default deny incoming
+    ufw default allow outgoing
+
+    # 放行基本联网出站流量
+    ufw allow out 53             # DNS
+    ufw allow out 80             # HTTP
+    ufw allow out 443            # HTTPS
+    ufw allow out 123            # NTP
+    ufw allow out 67             # DHCP 请求
+    ufw allow out 68             # DHCP 响应
+    ufw allow out proto icmp     # Ping
+    ufw allow out 7890           # Clash HTTP 代理
+    ufw allow out 7891           # Clash SOCKS 代理（如使用）
+
+    # 放行 Clash TUN 虚拟网卡接口
+    ufw allow in on tun0         # 虚拟网卡入站流量（TUN 模式必须）
+
+    # 保证远程连接不中断
+    ufw allow ssh
+
+    # 放行系统相关服务端口
+    ufw allow 3000/tcp  # Web前端
+    ufw allow 8000/tcp  # 后端 API
+    ufw allow 7474/tcp  # Neo4j HTTP
+    ufw allow 7687/tcp  # Neo4j Bolt
+    ufw allow 6379/tcp  # Redis
+    ufw allow 5060/tcp  # Falco gRPC
+
+    # 启用防火墙
+    ufw --force enable
+
+    log_success "防火墙规则配置完成（已适配 Clash TUN 模式）"
+}

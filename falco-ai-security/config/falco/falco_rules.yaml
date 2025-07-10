@@ -1,0 +1,60 @@
+# Falco AI Security System - 最小化有效规则文件
+# 包含基本的宏和列表定义以避免编译错误
+
+# 必需的宏定义
+- macro: never_true
+  condition: (proc.name=nonexistentprocess and fd.name=/nonexistent/path)
+
+- macro: always_true
+  condition: (proc.name!=nonexistentprocess)
+
+# 基本文件操作宏
+- macro: open_read
+  condition: (evt.type=open or evt.type=openat) and evt.is_open_read=true and fd.typechar='f' and fd.num>=0
+
+- macro: open_write
+  condition: (evt.type=open or evt.type=openat) and evt.is_open_write=true and fd.typechar='f' and fd.num>=0
+
+# 容器和进程宏
+- macro: container
+  condition: proc.name != host
+
+- macro: spawned_process
+  condition: evt.type = execve and evt.dir=<
+
+# 必需的列表定义
+- list: rfc_1918_addresses
+  items: ['10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16']
+
+# 基本安全检测规则
+- rule: Read sensitive file untrusted
+  desc: Detect attempts to read sensitive files
+  condition: >
+    open_read and
+    (fd.name in (/etc/passwd, /etc/shadow, /etc/hosts) or
+     fd.name startswith /etc/ssh/)
+  output: >
+    Sensitive file opened for reading (user=%user.name command=%proc.cmdline
+    file=%fd.name parent=%proc.pname pcmdline=%proc.pcmdline gparent=%proc.aname[2])
+  priority: WARNING
+  tags: [filesystem, mitre_discovery]
+
+- rule: Write below etc
+  desc: Detect any write beneath /etc
+  condition: >
+    open_write and fd.name startswith /etc/
+  output: >
+    File below /etc opened for writing (user=%user.name command=%proc.cmdline
+    file=%fd.name parent=%proc.pname pcmdline=%proc.pcmdline gparent=%proc.aname[2])
+  priority: ERROR
+  tags: [filesystem, mitre_persistence]
+
+- rule: Container with sensitive mount
+  desc: Detect container with sensitive host paths mounted
+  condition: >
+    spawned_process and container and
+    (proc.args contains "/etc" or proc.args contains "/var" or proc.args contains "/usr")
+  output: >
+    Container with sensitive mount detected (user=%user.name command=%proc.cmdline)
+  priority: WARNING
+  tags: [container, mitre_privilege_escalation]

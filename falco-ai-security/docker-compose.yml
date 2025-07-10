@@ -1,0 +1,188 @@
+version: '3.8'
+
+services:
+  # =============================================================================
+  # Neo4j图数据库服务
+  # =============================================================================
+  neo4j:
+    image: neo4j:5.15-community
+    container_name: falco-neo4j
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - NEO4J_AUTH=neo4j/falco-neo4j-password
+      - NEO4J_PLUGINS=["apoc"]
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*
+      - NEO4J_dbms_memory_heap_initial__size=512m
+      - NEO4J_dbms_memory_heap_max__size=2G
+      - NEO4J_dbms_memory_pagecache_size=1G
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+      - neo4j_import:/var/lib/neo4j/import
+      - neo4j_plugins:/plugins
+    healthcheck:
+      test: ["CMD", "cypher-shell", "-u", "neo4j", "-p", "falco-neo4j-password", "RETURN 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Redis缓存和消息队列服务
+  # =============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: falco-redis
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Falco运行时安全监控
+  # =============================================================================
+  falco:
+    image: falcosecurity/falco:0.41.3-debian
+    container_name: falco-monitor
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+
+    volumes:
+      - /var/run/docker.sock:/host/var/run/docker.sock
+      - /dev:/host/dev
+      - /proc:/host/proc:ro
+      - /boot:/host/boot:ro
+      - /lib/modules:/host/lib/modules:ro
+      - /usr:/host/usr:ro
+      - /etc:/host/etc:ro
+      - falco_logs:/var/log/falco
+      - ./config/falco/falco.yaml:/etc/falco/falco.yaml:ro
+      - ./config/falco/falco_rules.yaml:/etc/falco/falco_rules.yaml:ro
+      - ./config/falco/falco_rules.local.yaml:/etc/falco/falco_rules.local.yaml:ro
+    command: ["/usr/bin/falco", "-v"]
+    environment:
+      - FALCO_BPF_PROBE=yes
+      - FALCO_GRPC_ENABLED=true
+      - FALCO_GRPC_BIND_ADDRESS=0.0.0.0:5060
+      - FALCO_LOG_LEVEL=debug
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "pgrep", "falco"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Python后端API服务
+  # =============================================================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: falco-backend
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - ENVIRONMENT=production
+      - DEBUG=false
+      - HOST=0.0.0.0
+      - PORT=8000
+      - NEO4J_URI=bolt://localhost:7687
+      - NEO4J_USER=neo4j
+      - NEO4J_PASSWORD=falco-neo4j-password
+      - REDIS_URL=redis://localhost:6379/0
+      - FALCO_LOG_PATH=/var/log/falco/falco.log
+    env_file:
+      - .env
+    volumes:
+      - ./backend:/app
+      - falco_logs:/var/log/falco:ro
+      - backend_logs:/var/log/falco-ai-security
+      - ./scripts:/opt/falco-ai-security/scripts
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # React前端Web界面
+  # =============================================================================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: falco-frontend
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=http://localhost:8000
+      - REACT_APP_NEO4J_URL=http://localhost:7474
+      - NODE_ENV=production
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # =============================================================================
+  # Nginx反向代理（可选）
+  # =============================================================================
+  nginx:
+    image: nginx:alpine
+    container_name: falco-nginx
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# =============================================================================
+# 数据卷定义
+# =============================================================================
+volumes:
+  neo4j_data:
+    driver: local
+  neo4j_logs:
+    driver: local
+  neo4j_import:
+    driver: local
+  neo4j_plugins:
+    driver: local
+  redis_data:
+    driver: local
+  falco_logs:
+    driver: local
+  backend_logs:
+    driver: local
+
+# =============================================================================
+# 网络定义 - 使用host网络模式绕过veth模块问题
+# =============================================================================

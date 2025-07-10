@@ -1,0 +1,20 @@
+# Falco AI Security System - Kubernetes审计规则
+# 用于Kubernetes环境的安全监控（当前为占位文件）
+
+# =============================================================================
+# Kubernetes审计规则（占位）
+# =============================================================================
+
+# 注意：当前系统运行在Docker环境中，不使用Kubernetes
+# 此文件作为占位符存在，以满足Falco配置要求
+
+# 如果将来迁移到Kubernetes环境，可以在此添加相应的审计规则
+
+# 示例规则（已禁用）
+# - rule: K8s Audit Example
+#   desc: Example Kubernetes audit rule
+#   condition: ka and ka.verb in (create, update, delete)
+#   output: Kubernetes audit event (verb=%ka.verb resource=%ka.target.resource)
+#   priority: INFO
+#   tags: [k8s, audit]
+#   enabled: false
