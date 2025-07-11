@@ -271,14 +271,25 @@ function App() {
                         />
                         
                         {/* 自动化管理 */}
-                        <Route
-                          path="/automation"
-                          element={
-                            <PageWrapper>
-                              <Automation />
-                            </PageWrapper>
-                          }
-                        />
+                        <Route path="/automation/*" element={
+                          <Routes>
+                            <Route index element={
+                              <PageWrapper>
+                                <Automation />
+                              </PageWrapper>
+                            } />
+                            <Route path="rules" element={
+                              <PageWrapper>
+                                <Automation />
+                              </PageWrapper>
+                            } />
+                            <Route path="*" element={
+                              <PageWrapper>
+                                <Automation />
+                              </PageWrapper>
+                            } />
+                          </Routes>
+                        } />
                         
                         {/* 报告管理 */}
                         <Route
@@ -301,14 +312,20 @@ function App() {
                         />
                         
                         {/* 系统设置 */}
-                        <Route
-                          path="/settings"
-                          element={
-                            <PageWrapper>
-                              <Settings />
-                            </PageWrapper>
-                          }
-                        />
+                        <Route path="/settings/*" element={
+                          <Routes>
+                            <Route index element={
+                              <PageWrapper>
+                                <Settings />
+                              </PageWrapper>
+                            } />
+                            <Route path="*" element={
+                              <PageWrapper>
+                                <Settings />
+                              </PageWrapper>
+                            } />
+                          </Routes>
+                        } />
                         
                         {/* 用户管理 */}
                         <Route

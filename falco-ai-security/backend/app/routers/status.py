@@ -18,15 +18,45 @@ router = APIRouter(prefix="/status", tags=["status"])
 
 def check_service_status(service_name: str) -> Dict[str, Any]:
     """检查服务状态"""
-    # 模拟服务状态检查
-    services_status = {
-        "neo4j": {"status": "running", "port": 7687, "health": "healthy"},
-        "redis": {"status": "running", "port": 6379, "health": "healthy"},
-        "falco": {"status": "disabled", "port": None, "health": "disabled", "reason": "GCC compatibility issues"},
-        "nginx": {"status": "running", "port": 80, "health": "healthy"}
-    }
+    import subprocess
     
-    return services_status.get(service_name, {"status": "unknown", "health": "unknown"})
+    try:
+        if service_name == "falco":
+            # 检查Falco服务的实际状态
+            result = subprocess.run(
+                ["systemctl", "is-active", "falco-modern-bpf"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0 and result.stdout.strip() == "active":
+                return {
+                    "status": "running",
+                    "port": 8765,  # Falco health webserver port
+                    "health": "healthy",
+                    "service_name": "falco-modern-bpf"
+                }
+            else:
+                return {
+                    "status": "stopped",
+                    "port": None,
+                    "health": "unhealthy",
+                    "reason": "Service not active"
+                }
+        
+        # 对于其他服务，保持原有的模拟状态
+        services_status = {
+            "neo4j": {"status": "running", "port": 7687, "health": "healthy"},
+            "redis": {"status": "running", "port": 6379, "health": "healthy"},
+            "nginx": {"status": "running", "port": 80, "health": "healthy"}
+        }
+        
+        return services_status.get(service_name, {"status": "unknown", "health": "unknown"})
+        
+    except Exception as e:
+        logger.error(f"Error checking service status for {service_name}: {str(e)}")
+        return {"status": "unknown", "health": "unknown", "error": str(e)}
 
 def get_system_resources() -> Dict[str, Any]:
     """获取系统资源使用情况"""

@@ -180,19 +180,27 @@ function generateMockAIRecommendations() {
 // AI分析统计组件
 function AIAnalysisMetrics({ data, loading }) {
   const metrics = React.useMemo(() => {
-    if (!data || loading) return {};
+    if (!data || loading || !Array.isArray(data)) return {};
     
     const total = data.length;
     const byStatus = {};
     const byRisk = {};
     
     data.forEach(analysis => {
-      byStatus[analysis.status] = (byStatus[analysis.status] || 0) + 1;
-      byRisk[analysis.riskLevel] = (byRisk[analysis.riskLevel] || 0) + 1;
+      if (analysis && typeof analysis === 'object') {
+        byStatus[analysis.status] = (byStatus[analysis.status] || 0) + 1;
+        byRisk[analysis.riskLevel] = (byRisk[analysis.riskLevel] || 0) + 1;
+      }
     });
     
     const avgConfidence = data.length > 0 
-      ? Math.round(data.reduce((sum, a) => sum + a.confidence, 0) / data.length)
+      ? Math.round(data.reduce((sum, a) => {
+          // 处理置信度字段，可能是数字、字符串或confidence_score字段
+          const confidence = a.confidence_score || 
+                           (typeof a.confidence === 'number' ? a.confidence : 
+                            (typeof a.confidence === 'string' ? parseFloat(a.confidence) || 0 : 0));
+          return sum + (confidence * 100); // 转换为百分比
+        }, 0) / data.length)
       : 0;
     
     return {
@@ -297,6 +305,9 @@ function AIRecommendations({ recommendations, onExecute }) {
     }
   };
   
+  // 确保 recommendations 是数组
+  const validRecommendations = Array.isArray(recommendations) ? recommendations : [];
+  
   return (
     <Card>
       <CardHeader
@@ -304,8 +315,13 @@ function AIRecommendations({ recommendations, onExecute }) {
         avatar={<LightbulbIcon color="warning" />}
       />
       <CardContent>
-        <List>
-          {recommendations.map((rec, index) => (
+        {validRecommendations.length === 0 ? (
+          <Typography color="text.secondary" align="center" sx={{ py: 2 }}>
+            暂无AI推荐
+          </Typography>
+        ) : (
+          <List>
+            {validRecommendations.map((rec, index) => (
             <React.Fragment key={rec.id}>
               <ListItem
                 secondaryAction={
@@ -334,7 +350,7 @@ function AIRecommendations({ recommendations, onExecute }) {
                         size="small"
                       />
                       <Chip
-                        label={`${rec.confidence}%`}
+                        label={`${Math.round((rec.confidence_score || rec.confidence || 0) * (rec.confidence > 1 ? 1 : 100))}%`}
                         variant="outlined"
                         size="small"
                       />
@@ -352,10 +368,11 @@ function AIRecommendations({ recommendations, onExecute }) {
                   }
                 />
               </ListItem>
-              {index < recommendations.length - 1 && <Divider />}
+              {index < validRecommendations.length - 1 && <Divider />}
             </React.Fragment>
-          ))}
-        </List>
+            ))}
+          </List>
+        )}
       </CardContent>
     </Card>
   );
@@ -382,7 +399,9 @@ export default function AIAnalysis() {
     queryKey: ['ai-analyses', filters],
     queryFn: async () => {
       try {
-        return await apiService.getAIAnalysis(filters);
+        const response = await apiService.getAIAnalysis(filters);
+        // 检查响应格式，如果是API格式则提取data字段，否则直接返回
+        return response && response.success ? response.data : response;
       } catch (error) {
         console.warn('API调用失败，使用模拟数据:', error);
         return generateMockAIAnalysis();
@@ -396,7 +415,9 @@ export default function AIAnalysis() {
     queryKey: ['ai-recommendations'],
     queryFn: async () => {
       try {
-        return await apiService.getAIRecommendations();
+        const response = await apiService.getAIRecommendations();
+        // 检查响应格式，如果是API格式则提取data字段，否则直接返回
+        return response && response.success ? response.data : response;
       } catch (error) {
         console.warn('API调用失败，使用模拟数据:', error);
         return generateMockAIRecommendations();
@@ -518,21 +539,39 @@ export default function AIAnalysis() {
     {
       id: 'confidence',
       label: '置信度',
-      format: (value) => (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LinearProgress
-            variant="determinate"
-            value={value}
-            sx={{ width: 60, height: 6 }}
-          />
-          <Typography variant="caption">{value}%</Typography>
-        </Box>
-      ),
+      format: (value, row) => {
+        // 处理置信度字段，可能是数字、字符串或confidence_score字段
+        const confidence = row.confidence_score || 
+                         (typeof value === 'number' ? value : 
+                          (typeof value === 'string' ? parseFloat(value) || 0 : 0));
+        const confidencePercent = confidence > 1 ? confidence : confidence * 100;
+        return (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LinearProgress
+              variant="determinate"
+              value={confidencePercent}
+              sx={{ width: 60, height: 6 }}
+            />
+            <Typography variant="caption">{Math.round(confidencePercent)}%</Typography>
+          </Box>
+        );
+      },
       width: 120,
     },
     {
       id: 'findings',
       label: '发现',
+      format: (value, row) => {
+        // 处理发现字段，可能是数组或数字
+        const findingsCount = Array.isArray(row.findings) ? row.findings.length : (value || 0);
+        return (
+          <Chip
+            label={`${findingsCount} 个`}
+            size="small"
+            color={findingsCount > 0 ? 'warning' : 'default'}
+          />
+        );
+      },
       width: 80,
     },
   ];

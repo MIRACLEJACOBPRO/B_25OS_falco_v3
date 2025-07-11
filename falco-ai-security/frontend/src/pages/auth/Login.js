@@ -93,17 +93,10 @@ const Login = () => {
       
       if (result.success) {
         console.log('[Login] 登录成功，准备跳转到dashboard');
-        console.log('[Login] 当前URL:', window.location.href);
+        toast.success('登录成功！');
         
-        // 使用更长的延迟确保认证状态完全更新
-        setTimeout(() => {
-          console.log('[Login] 检查认证状态后开始跳转');
-          console.log('[Login] 当前认证状态:', { isAuthenticated, isLoading });
-          
-          // 直接使用window.location进行强制跳转，避免React Router的状态问题
-          console.log('[Login] 使用window.location强制跳转到dashboard');
-          window.location.href = '/dashboard';
-        }, 1000); // 给认证状态更新更多时间
+        // 使用React Router进行导航，避免页面刷新
+        navigate('/dashboard', { replace: true });
       } else {
         setError(result.error || '登录失败');
       }

@@ -241,6 +241,168 @@ const LAYOUT_ALGORITHMS = {
   radial: { label: '径向布局', description: '以中心节点为核心的径向排列' },
 };
 
+// 处理Neo4j图谱数据并优化布局
+function processNeo4jGraphData(rawData) {
+  const { nodes = [], edges = [] } = rawData;
+  
+  // 如果没有数据，返回空图谱
+  if (nodes.length === 0) {
+    return { nodes: [], edges: [] };
+  }
+  
+  // 处理节点数据
+  const processedNodes = nodes.map((node, index) => {
+    // 根据节点类型确定颜色和大小
+    const nodeType = node.labels?.[0] || 'Unknown';
+    const nodeConfig = NODE_TYPES[nodeType.toLowerCase()] || NODE_TYPES.event;
+    
+    return {
+      id: node.id || `node_${index}`,
+      label: node.properties?.name || node.properties?.label || `${nodeType}_${node.id}`,
+      type: nodeType.toLowerCase(),
+      color: nodeConfig.color,
+      size: calculateNodeSize(node),
+      x: 0, // 初始位置，后续会被布局算法重新计算
+      y: 0,
+      properties: node.properties || {},
+      risk_score: node.properties?.risk_score || 0
+    };
+  });
+  
+  // 处理边数据
+  const processedEdges = edges.map((edge, index) => {
+    const edgeType = edge.type || 'RELATED';
+    const edgeConfig = EDGE_TYPES[edgeType.toLowerCase()] || EDGE_TYPES.access;
+    
+    return {
+      id: edge.id || `edge_${index}`,
+      source: edge.source || edge.startNode,
+      target: edge.target || edge.endNode,
+      type: edgeType.toLowerCase(),
+      label: edgeConfig.label,
+      color: edgeConfig.color,
+      width: calculateEdgeWidth(edge),
+      properties: edge.properties || {}
+    };
+  });
+  
+  // 应用力导向布局算法
+  const layoutData = applyForceDirectedLayout(processedNodes, processedEdges);
+  
+  return layoutData;
+}
+
+// 计算节点大小
+function calculateNodeSize(node) {
+  const baseSize = 20;
+  const riskScore = node.properties?.risk_score || 0;
+  const sizeMultiplier = 1 + (riskScore * 0.5); // 风险分数越高，节点越大
+  return Math.max(baseSize * sizeMultiplier, 15);
+}
+
+// 计算边宽度
+function calculateEdgeWidth(edge) {
+  const baseWidth = 2;
+  const weight = edge.properties?.weight || 1;
+  return Math.max(baseWidth * weight, 1);
+}
+
+// 力导向布局算法
+function applyForceDirectedLayout(nodes, edges) {
+  const width = 800;
+  const height = 600;
+  const centerX = width / 2;
+  const centerY = height / 2;
+  
+  // 创建节点位置映射
+  const nodePositions = new Map();
+  
+  // 根据节点类型进行分组布局
+  const nodeGroups = {};
+  nodes.forEach(node => {
+    const type = node.type || 'unknown';
+    if (!nodeGroups[type]) {
+      nodeGroups[type] = [];
+    }
+    nodeGroups[type].push(node);
+  });
+  
+  // 为每个组分配扇形区域
+  const groupTypes = Object.keys(nodeGroups);
+  const angleStep = (2 * Math.PI) / groupTypes.length;
+  
+  groupTypes.forEach((type, groupIndex) => {
+    const groupNodes = nodeGroups[type];
+    const groupAngle = groupIndex * angleStep;
+    const groupRadius = 150 + (groupNodes.length * 5); // 根据节点数量调整半径
+    
+    groupNodes.forEach((node, nodeIndex) => {
+      const nodeAngle = groupAngle + (nodeIndex * 0.3); // 在组内分散节点
+      const nodeRadius = groupRadius + (nodeIndex * 20);
+      
+      const x = centerX + Math.cos(nodeAngle) * nodeRadius;
+      const y = centerY + Math.sin(nodeAngle) * nodeRadius;
+      
+      node.x = Math.max(50, Math.min(width - 50, x));
+      node.y = Math.max(50, Math.min(height - 50, y));
+      
+      nodePositions.set(node.id, { x: node.x, y: node.y });
+    });
+  });
+  
+  // 应用力导向调整
+  for (let iteration = 0; iteration < 50; iteration++) {
+    // 计算节点间的排斥力
+    nodes.forEach(node1 => {
+      let fx = 0, fy = 0;
+      
+      nodes.forEach(node2 => {
+        if (node1.id !== node2.id) {
+          const dx = node1.x - node2.x;
+          const dy = node1.y - node2.y;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          
+          if (distance > 0 && distance < 100) {
+            const force = 500 / (distance * distance);
+            fx += (dx / distance) * force;
+            fy += (dy / distance) * force;
+          }
+        }
+      });
+      
+      // 计算连接的吸引力
+      edges.forEach(edge => {
+        if (edge.source === node1.id) {
+          const target = nodes.find(n => n.id === edge.target);
+          if (target) {
+            const dx = target.x - node1.x;
+            const dy = target.y - node1.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const idealDistance = 80;
+            
+            if (distance > idealDistance) {
+              const force = 0.1;
+              fx += (dx / distance) * force;
+              fy += (dy / distance) * force;
+            }
+          }
+        }
+      });
+      
+      // 应用力并限制移动范围
+      const damping = 0.1;
+      node1.x += fx * damping;
+      node1.y += fy * damping;
+      
+      // 边界约束
+      node1.x = Math.max(50, Math.min(width - 50, node1.x));
+      node1.y = Math.max(50, Math.min(height - 50, node1.y));
+    });
+  }
+  
+  return { nodes, edges };
+}
+
 // 模拟图谱数据生成器
 const generateMockGraphData = () => {
   const nodes = [
@@ -764,7 +926,7 @@ export default function GraphVisualization() {
     edgeType: '',
     search: '',
     layout: 'force',
-    timeRange: [0, 24],
+    timeRange: '',
   });
   
   // 获取图谱数据
@@ -773,15 +935,22 @@ export default function GraphVisualization() {
     queryFn: async () => {
       try {
         // 调用真实的API获取图谱数据
-        const response = await ApiService.getGraphData(filters);
+        const response = await apiService.getGraphData(filters);
         
-        // 如果API返回失败或数据为空，使用模拟数据作为降级方案
-        if (!response?.success || !response?.data) {
+        // 检查API响应
+        if (response?.success && response?.data) {
+          console.log(`图谱数据来源: ${response.source}`);
+          
+          // 如果是Neo4j数据，进行数据处理和布局优化
+          if (response.source === 'neo4j') {
+            return processNeo4jGraphData(response.data);
+          }
+          
+          return response.data;
+        } else {
           console.warn('API返回数据异常，使用模拟数据');
           return generateMockGraphData();
         }
-        
-        return response.data;
       } catch (error) {
         console.error('获取图谱数据失败，使用模拟数据:', error);
         // API调用失败时使用模拟数据作为降级方案

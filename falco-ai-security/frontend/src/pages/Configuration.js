@@ -862,7 +862,7 @@ export default function Configuration() {
     queryKey: ['rules'],
     queryFn: () => {
       // 在实际应用中，这里应该调用真实的API
-      // return ApiService.getRules();
+      // return apiService.getRules();
       
       // 模拟数据
       return new Promise(resolve => {
@@ -877,7 +877,7 @@ export default function Configuration() {
   const saveConfigMutation = useMutation({
     mutationFn: (config) => {
       // 在实际应用中，这里应该调用真实的API
-      // return ApiService.saveConfiguration(config);
+      // return apiService.saveConfiguration(config);
       
       // 模拟保存
       return new Promise(resolve => {

@@ -731,7 +731,7 @@ export default function EventAnalysis() {
     queryFn: async () => {
       try {
         // 调用真实的API
-        return await ApiService.getEvents({ ...filters, timeRange });
+        return await apiService.getEvents({ ...filters, timeRange });
       } catch (error) {
         console.warn('API调用失败，使用模拟数据:', error);
         // 如果API调用失败，使用模拟数据

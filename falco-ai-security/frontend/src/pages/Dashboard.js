@@ -104,6 +104,25 @@ const MetricCard = styled(Card)(({ theme, color = 'primary' }) => ({
 }));
 
 const StatusIndicator = styled(Box)(({ theme, status }) => {
+  // 状态映射：将后端返回的状态值映射到UI状态
+  const mapStatus = (backendStatus) => {
+    switch (backendStatus) {
+      case 'running':
+        return 'success';
+      case 'stopped':
+      case 'unhealthy':
+        return 'error';
+      case 'degraded':
+      case 'warning':
+        return 'warning';
+      case 'unknown':
+      default:
+        return 'info';
+    }
+  };
+  
+  const mappedStatus = mapStatus(status);
+  
   const colors = {
     success: theme.palette.success.main,
     warning: theme.palette.warning.main,
@@ -115,17 +134,17 @@ const StatusIndicator = styled(Box)(({ theme, status }) => {
     width: 12,
     height: 12,
     borderRadius: '50%',
-    backgroundColor: colors[status] || colors.info,
-    animation: status === 'error' ? 'pulse 2s infinite' : 'none',
+    backgroundColor: colors[mappedStatus] || colors.info,
+    animation: mappedStatus === 'error' ? 'pulse 2s infinite' : 'none',
     '@keyframes pulse': {
       '0%': {
-        boxShadow: `0 0 0 0 ${alpha(colors[status] || colors.info, 0.7)}`,
+        boxShadow: `0 0 0 0 ${alpha(colors[mappedStatus] || colors.info, 0.7)}`,
       },
       '70%': {
-        boxShadow: `0 0 0 10px ${alpha(colors[status] || colors.info, 0)}`,
+        boxShadow: `0 0 0 10px ${alpha(colors[mappedStatus] || colors.info, 0)}`,
       },
       '100%': {
-        boxShadow: `0 0 0 0 ${alpha(colors[status] || colors.info, 0)}`,
+        boxShadow: `0 0 0 0 ${alpha(colors[mappedStatus] || colors.info, 0)}`,
       },
     },
   };
@@ -287,13 +306,23 @@ function SystemStatus({ status, loading }) {
     return <LoadingSpinner type="content" />;
   }
   
+  // 从API响应中提取实际的状态数据
+  const statusData = status?.data || status || {};
+  
   const services = [
-    { name: 'Falco 引擎', status: status?.falco || 'unknown', description: '实时监控服务' },
-    { name: 'AI 分析', status: status?.ai || 'unknown', description: '智能威胁分析' },
-    { name: '数据库', status: status?.database || 'unknown', description: 'PostgreSQL 数据库' },
-    { name: '消息队列', status: status?.queue || 'unknown', description: 'Redis 消息队列' },
-    { name: 'Web 服务', status: status?.web || 'unknown', description: 'HTTP API 服务' },
+    { name: 'Falco 引擎', status: statusData?.falco || 'unknown', description: '实时监控服务' },
+    { name: 'AI 分析', status: statusData?.ai || 'unknown', description: '智能威胁分析' },
+    { name: '数据库', status: statusData?.database || 'unknown', description: 'PostgreSQL 数据库' },
+    { name: '消息队列', status: statusData?.queue || 'unknown', description: 'Redis 消息队列' },
+    { name: 'Web 服务', status: statusData?.web || 'unknown', description: 'HTTP API 服务' },
   ];
+  
+  // 添加调试信息（开发环境下）
+  if (process.env.NODE_ENV === 'development') {
+    console.log('SystemStatus - Raw status:', status);
+    console.log('SystemStatus - Extracted statusData:', statusData);
+    console.log('SystemStatus - Services:', services);
+  }
   
   return (
     <List>

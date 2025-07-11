@@ -947,7 +947,7 @@ export default function ThreatIntelligence() {
     queryFn: async () => {
       try {
         // 调用真实的API
-        return await ApiService.getThreatIntelligence(filters);
+        return await apiService.getThreatIntelligence(filters);
       } catch (error) {
         console.warn('API调用失败，使用模拟数据:', error);
         // 如果API调用失败，使用模拟数据
@@ -994,7 +994,7 @@ export default function ThreatIntelligence() {
     queryFn: async () => {
       try {
         // 调用真实的API
-        return await ApiService.getThreatTrends();
+        return await apiService.getThreatTrends();
       } catch (error) {
         console.warn('API调用失败，使用模拟数据:', error);
         // 如果API调用失败，使用模拟数据

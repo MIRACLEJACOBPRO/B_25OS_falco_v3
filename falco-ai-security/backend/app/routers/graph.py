@@ -38,7 +38,7 @@ async def get_graph_data(
     edge_type: Optional[str] = Query(None, description="关系类型过滤"),
     search: Optional[str] = Query(None, description="搜索关键词"),
     limit: Optional[int] = Query(100, description="返回数量限制"),
-    time_range: Optional[str] = Query("24h", description="时间范围: 1h, 6h, 24h, 7d")
+    time_range: Optional[str] = Query(None, description="时间范围: 1h, 6h, 24h, 7d")
 ):
     """获取图谱数据"""
     try:
@@ -59,9 +59,12 @@ async def get_graph_data(
             "node_type": node_type,
             "edge_type": edge_type,
             "search": search,
-            "limit": limit,
-            "time_range": time_range
+            "limit": limit
         }
+        
+        # 只有当time_range不为None时才添加到查询参数中
+        if time_range is not None:
+            query_params["time_range"] = time_range
         
         # 从Neo4j获取图谱数据
         graph_data = await get_graph_from_neo4j(neo4j_service, query_params)
@@ -226,10 +229,10 @@ async def get_graph_from_neo4j(neo4j_service: Neo4jService, params: Dict[str, An
             if params.get('time_range'):
                 time_filter = get_time_filter(params['time_range'])
                 if time_filter:
-                    where_conditions.append(f"n.timestamp >= $start_time")
-                    query_params['start_time'] = time_filter
+                    where_conditions.append("n.timestamp >= $start_time")
+                    query_params['start_time'] = time_filter.isoformat()
             
-            where_clause = " AND " + " AND ".join(where_conditions) if where_conditions else ""
+            where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
             
             # 查询节点
             nodes_query = f"""
