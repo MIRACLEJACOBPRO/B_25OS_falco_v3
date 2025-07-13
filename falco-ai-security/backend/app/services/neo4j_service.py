@@ -91,6 +91,10 @@ class Neo4jService:
             self.is_connected = False
             logger.info("已断开Neo4j连接")
     
+    async def initialize_database(self):
+        """初始化数据库结构（公共方法）"""
+        await self._initialize_database()
+    
     async def _initialize_database(self):
         """初始化数据库结构"""
         try:
@@ -237,7 +241,7 @@ class Neo4jService:
         
         return None
     
-    async def store_behavior_triple(self, triple: BehaviorTriple) -> bool:
+    async def store_behavior_triplet(self, triple: BehaviorTriple) -> bool:
         """存储行为三元组到图数据库"""
         try:
             with self.driver.session(database=self.database) as session:

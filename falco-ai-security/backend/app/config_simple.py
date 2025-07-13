@@ -45,6 +45,9 @@ class Settings:
         self.FALCO_LOG_PATH = os.getenv("FALCO_LOG_PATH", "/var/log/falco/falco.log")
         self.FALCO_CONFIG_PATH = os.getenv("FALCO_CONFIG_PATH", "/etc/falco/falco.yaml")
         self.FALCO_RULES_PATH = os.getenv("FALCO_RULES_PATH", "/etc/falco/falco_rules.yaml")
+        self.FALCO_ALLOW_INVALID_EVENTS = os.getenv("FALCO_ALLOW_INVALID_EVENTS", "False").lower() == "true"
+        self.FALCO_MAX_EVENTS_PER_BATCH = int(os.getenv("FALCO_MAX_EVENTS_PER_BATCH", "100"))
+        self.FALCO_PROCESSING_INTERVAL = int(os.getenv("FALCO_PROCESSING_INTERVAL", "1"))  # 秒
         
         # 系统路径配置
         self.LOG_DIR = os.getenv("LOG_DIR", "/var/log/falco-ai-security")

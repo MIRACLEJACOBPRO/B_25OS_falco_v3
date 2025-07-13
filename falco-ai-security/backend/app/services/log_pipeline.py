@@ -290,8 +290,8 @@ class LogPipeline:
     def __init__(self, config: Dict[str, Any] = None):
         self.config = config or {}
         self.is_running = False
-        self.event_queue = Queue(maxsize=self.config.get("queue_size", 1000))
-        self.processed_events = deque(maxlen=self.config.get("history_size", 10000))
+        self.event_queue = Queue(maxsize=self.config.get("queue_size", 200))
+        self.processed_events = deque(maxlen=self.config.get("history_size", 1000))
         
         # 初始化组件
         self.falco_monitor = FalcoMonitorService()
@@ -305,7 +305,7 @@ class LogPipeline:
         
         # 线程池
         self.thread_pool = ThreadPoolExecutor(
-            max_workers=self.config.get("worker_threads", 4)
+            max_workers=self.config.get("worker_threads", 2)
         )
         
         # 统计信息
@@ -370,7 +370,9 @@ class LogPipeline:
             await self.falco_monitor.stop()
             
             # 等待队列处理完成
-            while not self.event_queue.empty():
+            timeout = 5.0  # 最多等待5秒
+            start_time = time.time()
+            while not self.event_queue.empty() and (time.time() - start_time) < timeout:
                 await asyncio.sleep(0.1)
             
             # 关闭线程池
@@ -404,9 +406,12 @@ class LogPipeline:
             try:
                 # 从队列获取事件
                 try:
-                    event = self.event_queue.get(timeout=1.0)
+                    event = self.event_queue.get(timeout=0.5)
                 except Empty:
                     continue
+                
+                # 添加处理间隔以降低CPU占用
+                await asyncio.sleep(0.01)
                 
                 # 处理事件
                 await self._process_single_event(event)
@@ -570,3 +575,6 @@ if __name__ == "__main__":
     
     # 运行测试
     asyncio.run(test_pipeline())
+
+# 为了兼容性，创建LogPipelineService别名
+LogPipelineService = LogPipeline

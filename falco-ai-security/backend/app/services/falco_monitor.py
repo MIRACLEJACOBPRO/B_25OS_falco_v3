@@ -21,79 +21,96 @@ import aiofiles
 # from grpc import aio as aio_grpc
 
 from app.config import settings
+from .falco_data_integrity import FalcoDataIntegrityService
+from ..models.event_models import FalcoEvent
 
 logger = logging.getLogger(__name__)
-
-@dataclass
-class FalcoEvent:
-    """Falco事件数据结构"""
-    timestamp: datetime
-    rule: str
-    priority: str
-    source: str
-    message: str
-    output_fields: Dict[str, Any]
-    hostname: str
-    tags: List[str]
-    raw_data: Dict[str, Any]
-    
-    @classmethod
-    def from_json(cls, json_data: Dict[str, Any]) -> 'FalcoEvent':
-        """从JSON数据创建FalcoEvent实例"""
-        try:
-            # 解析时间戳
-            timestamp_str = json_data.get('time', json_data.get('timestamp', ''))
-            if timestamp_str:
-                # 支持多种时间格式
-                for fmt in ['%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%dT%H:%M:%SZ', '%Y-%m-%d %H:%M:%S']:
-                    try:
-                        timestamp = datetime.strptime(timestamp_str, fmt)
-                        break
-                    except ValueError:
-                        continue
-                else:
-                    timestamp = datetime.now()
-            else:
-                timestamp = datetime.now()
-            
-            return cls(
-                timestamp=timestamp,
-                rule=json_data.get('rule', 'Unknown'),
-                priority=json_data.get('priority', 'Info'),
-                source=json_data.get('source', 'falco'),
-                message=json_data.get('output', json_data.get('message', '')),
-                output_fields=json_data.get('output_fields', {}),
-                hostname=json_data.get('hostname', 'unknown'),
-                tags=json_data.get('tags', []),
-                raw_data=json_data
-            )
-        except Exception as e:
-            logger.error(f"解析Falco事件失败: {e}")
-            # 返回默认事件
-            return cls(
-                timestamp=datetime.now(),
-                rule='Parse Error',
-                priority='Error',
-                source='falco',
-                message=f"Failed to parse event: {str(e)}",
-                output_fields={},
-                hostname='unknown',
-                tags=[],
-                raw_data=json_data
-            )
 
 class FalcoLogHandler(FileSystemEventHandler):
     """Falco日志文件监控处理器"""
     
-    def __init__(self, callback: Callable[[FalcoEvent], None]):
+    def __init__(self, callback: Callable[[FalcoEvent], None], monitor_service=None, log_file_path=None):
         self.callback = callback
         self.last_position = 0
+        self.monitor_service = monitor_service
+        self.log_file_path = log_file_path
+        self._last_position = 0
         
     def on_modified(self, event):
-        """文件修改时触发"""
-        if not event.is_directory and event.src_path.endswith('.log'):
-            asyncio.create_task(self._process_new_lines(event.src_path))
+        """文件修改事件处理"""
+        if event.is_directory:
+            return
+        
+        if event.src_path.endswith('.log'):
+            logger.info(f"检测到Falco日志文件修改: {event.src_path}")
+            # 在新线程中处理新行，避免事件循环问题
+            import threading
+            thread = threading.Thread(target=self._process_new_lines_sync, args=(event.src_path,))
+            thread.daemon = True
+            thread.start()
     
+    def _process_new_lines_sync(self, file_path: str):
+        """同步版本的新行处理方法"""
+        try:
+            # 检查是否为监控的日志文件
+            if file_path != self.log_file_path:
+                return
+            
+            # 读取新增的行
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    # 移动到上次读取的位置
+                    if hasattr(self, '_last_position'):
+                        f.seek(self._last_position)
+                    else:
+                        # 首次读取，移动到文件末尾
+                        f.seek(0, 2)
+                        self._last_position = f.tell()
+                        return
+                    
+                    # 读取新行
+                    new_lines = f.readlines()
+                    self._last_position = f.tell()
+                    
+                    # 处理每一行
+                    for line in new_lines:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        
+                        # 检查重复
+                        if self.monitor_service.data_integrity_service.is_duplicate_line(line):
+                            continue
+                        
+                        # 解析并回调
+                        self._parse_and_callback_sync(line)
+                        
+            except Exception as e:
+                logger.error(f"读取日志文件失败: {e}")
+                
+        except Exception as e:
+            logger.error(f"处理新行时发生错误: {e}")
+    
+    def _parse_and_callback_sync(self, line: str):
+        """同步版本的解析和回调方法"""
+        try:
+            # 尝试解析JSON
+            try:
+                event_data = json.loads(line)
+                # 创建FalcoEvent对象
+                falco_event = FalcoEvent.from_json(event_data)
+                # 调用回调函数
+                if self.callback:
+                    self.callback(falco_event)
+            except json.JSONDecodeError:
+                # 非JSON格式的日志行，记录但不处理
+                logger.debug(f"跳过非JSON格式的日志行: {line[:100]}...")
+            except Exception as e:
+                logger.error(f"处理Falco事件失败: {e}")
+                
+        except Exception as e:
+            logger.error(f"解析日志行失败: {e}")
+     
     async def _process_new_lines(self, file_path: str):
         """处理新增的日志行"""
         try:
@@ -105,7 +122,11 @@ class FalcoLogHandler(FileSystemEventHandler):
                 if new_lines.strip():
                     for line in new_lines.strip().split('\n'):
                         if line.strip():
-                            await self._parse_and_callback(line)
+                            # 检查是否重复
+                            if not self.monitor_service.data_integrity_service.is_duplicate_line(line):
+                                await self._parse_and_callback(line)
+                            else:
+                                logger.debug(f"跳过重复日志行: {line[:100]}...")
         except Exception as e:
             logger.error(f"处理日志文件失败: {e}")
     
@@ -157,6 +178,7 @@ class FalcoMonitorService:
         self.grpc_client = None
         self.event_callbacks: List[Callable[[FalcoEvent], None]] = []
         self.is_running = False
+        self.data_integrity_service = FalcoDataIntegrityService()
         self.stats = {
             'total_events': 0,
             'events_by_priority': {},
@@ -178,6 +200,14 @@ class FalcoMonitorService:
     async def _handle_event(self, event: FalcoEvent):
         """处理Falco事件"""
         try:
+            # 数据完整性验证
+            validation_result = await self.data_integrity_service.validate_event(event)
+            if not validation_result.is_valid:
+                logger.warning(f"事件验证失败: {validation_result.error_message}")
+                # 根据配置决定是否继续处理
+                if not settings.FALCO_ALLOW_INVALID_EVENTS:
+                    return
+            
             # 更新统计信息
             self.stats['total_events'] += 1
             self.stats['last_event_time'] = event.timestamp
@@ -219,7 +249,7 @@ class FalcoMonitorService:
                 log_path.touch()
             
             # 创建文件监控处理器
-            handler = FalcoLogHandler(self._handle_event)
+            handler = FalcoLogHandler(self._handle_event, self, self.log_file_path)
             
             # 启动文件监控
             self.observer = Observer()
@@ -322,11 +352,13 @@ class FalcoMonitorService:
     
     def get_stats(self) -> Dict[str, Any]:
         """获取监控统计信息"""
+        integrity_stats = self.data_integrity_service.get_stats()
         return {
             **self.stats,
             'is_running': self.is_running,
             'log_file_path': self.log_file_path,
-            'callback_count': len(self.event_callbacks)
+            'callback_count': len(self.event_callbacks),
+            'data_integrity': integrity_stats
         }
     
     async def test_event_generation(self):

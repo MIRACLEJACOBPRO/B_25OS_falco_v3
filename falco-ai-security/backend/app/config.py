@@ -58,6 +58,12 @@ class Settings(BaseSettings):
     RISK_THRESHOLD: float = Field(default=0.7, env="RISK_THRESHOLD")
     BATCH_SIZE: int = Field(default=10, env="BATCH_SIZE")
     
+    # AI Agent配置
+    AI_BATCH_SIZE: int = Field(default=10, env="AI_BATCH_SIZE")
+    AI_ANALYSIS_INTERVAL: int = Field(default=30, env="AI_ANALYSIS_INTERVAL")
+    AI_SIMILARITY_THRESHOLD: float = Field(default=0.8, env="AI_SIMILARITY_THRESHOLD")
+    AI_RISK_THRESHOLD: float = Field(default=0.7, env="AI_RISK_THRESHOLD")
+    
     # 监控配置
     MONITOR_INTERVAL: int = Field(default=5, env="MONITOR_INTERVAL")  # 秒
     LOG_RETENTION_DAYS: int = Field(default=30, env="LOG_RETENTION_DAYS")

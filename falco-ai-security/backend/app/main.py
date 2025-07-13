@@ -22,6 +22,7 @@ from app.routers import auth, monitor, status, dashboard, websocket_test, intell
 from app.services.websocket_service import websocket_service
 from app.routes import websocket_routes
 from app.services.simple_websocket import simple_websocket_service
+from app.services import Neo4jService, OpenAIService, AIAgentService, LogPipelineService
 
 # 配置日志
 logging.basicConfig(
@@ -115,14 +116,23 @@ async def root():
         "info": "/info"
     }
 
+# 全局服务实例
+neo4j_service = None
+openai_service = None
+ai_agent_service = None
+log_pipeline_service = None
+
 # 启动事件
 @app.on_event("startup")
 async def startup_event():
     """应用启动时执行"""
+    global neo4j_service, openai_service, ai_agent_service, log_pipeline_service
+    
     logger.info("Falco AI Security System is starting up...")
     
     # 创建必要的日志目录
     os.makedirs('/var/log/falco-ai-security', exist_ok=True)
+    os.makedirs('/var/log/falco', exist_ok=True)
     
     # 启动WebSocket后台任务
     try:
@@ -134,10 +144,37 @@ async def startup_event():
     await simple_websocket_service.start_background_tasks()
     
     # 初始化各个服务连接
-    # TODO: 初始化Neo4j连接
-    # TODO: 初始化Pinecone连接
-    # TODO: 初始化OpenAI客户端
-    # TODO: 启动Falco日志监控服务
+    try:
+        # 初始化Neo4j连接
+        logger.info("正在初始化Neo4j服务...")
+        neo4j_service = Neo4jService()
+        await neo4j_service.connect()
+        await neo4j_service.initialize_database()
+        logger.info("Neo4j服务初始化成功")
+        
+        # 初始化OpenAI客户端
+        logger.info("正在初始化OpenAI服务...")
+        openai_service = OpenAIService()
+        logger.info("OpenAI服务初始化成功")
+        
+        # 初始化AI代理服务
+        logger.info("正在初始化AI代理服务...")
+        ai_agent_service = AIAgentService(neo4j_service, openai_service)
+        logger.info("AI代理服务初始化成功")
+        
+        # 启动Falco日志监控服务
+        logger.info("正在启动Falco日志处理管道...")
+        log_pipeline_service = LogPipelineService()
+        log_pipeline_service.set_services(
+            neo4j_service=neo4j_service,
+            ai_agent=ai_agent_service
+        )
+        await log_pipeline_service.start()
+        logger.info("Falco日志处理管道启动成功")
+        
+    except Exception as e:
+        logger.error(f"服务初始化失败: {e}", exc_info=True)
+        raise
     
     logger.info("Falco AI Security System started successfully")
 
@@ -145,14 +182,27 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭时执行"""
+    global neo4j_service, openai_service, ai_agent_service, log_pipeline_service
+    
     logger.info("Falco AI Security System is shutting down...")
     
     # 停止WebSocket后台任务
     await simple_websocket_service.stop_background_tasks()
     
     # 清理资源
-    # TODO: 关闭数据库连接
-    # TODO: 停止监控服务
+    try:
+        # 停止日志处理管道
+        if log_pipeline_service:
+            await log_pipeline_service.stop()
+            logger.info("日志处理管道已停止")
+        
+        # 关闭Neo4j连接
+        if neo4j_service:
+            await neo4j_service.disconnect()
+            logger.info("Neo4j连接已关闭")
+            
+    except Exception as e:
+        logger.error(f"服务关闭时出错: {e}", exc_info=True)
     
     logger.info("Falco AI Security System shutdown complete")
 
